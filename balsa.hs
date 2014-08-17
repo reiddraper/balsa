@@ -11,8 +11,8 @@ import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVar, takeTMVar, putTMVar)
 import System.IO (Handle, BufferMode(LineBuffering), hSetBuffering, hPrint, hGetLine)
 import qualified System.Process as Process
 import Development.Shake (Action, shakeArgs, shakeOptions, (*>), (~>), phony,
-                          removeFilesAfter, need, getDirectoryFiles, traced,
-                          cmd)
+                          removeFilesAfter, want, need, getDirectoryFiles,
+                          traced, cmd)
 import Development.Shake.FilePath ((</>), (-<.>), takeDirectory, takeDirectory1,
                                    dropDirectory1, splitFileName)
 
@@ -107,6 +107,7 @@ compileErlang file include includeLib outputDir =
 
 runShake :: ErlangCompiler -> IO ()
 runShake erlangCompiler = shakeArgs shakeOptions $ do
+    want ["compile"]
 
     phony "clean" $
         removeFilesAfter "ebin" ["//*"]
