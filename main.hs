@@ -2,18 +2,19 @@
 
 module Main where
 
-import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
-import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.STM (STM)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TChan
-import Control.Concurrent.STM.TVar
-import Control.Concurrent.STM.TMVar
-import System.IO
-import System.Process
-import Development.Shake
-import Development.Shake.FilePath
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (STM, atomically)
+import Control.Concurrent.STM.TChan (TChan, newTChan, readTChan, writeTChan)
+import Control.Concurrent.STM.TVar (TVar, newTVar, readTVar, writeTVar, modifyTVar)
+import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVar, takeTMVar, putTMVar)
+import System.IO (Handle, BufferMode(LineBuffering), hSetBuffering, hPrint, hGetLine)
+import qualified System.Process as Process
+import Development.Shake (Action, shakeArgs, shakeOptions, (*>), (~>), phony,
+                          removeFilesAfter, need, getDirectoryFiles, traced,
+                          cmd)
+import Development.Shake.FilePath ((</>), (-<.>), takeDirectory, takeDirectory1,
+                                   dropDirectory1, splitFileName)
 
 type ErlangCompiler = FilePath -> FilePath -> FilePath -> FilePath -> Action ()
 
@@ -27,7 +28,7 @@ data CompileRequest = CompileRequest {
 
 instance Show CompileRequest where
     show CompileRequest {..} =
-       intercalate " " [(show ident), file, include, includeLib, outputDir]
+       unwords [show ident, file, include, includeLib, outputDir]
 
 nextCount :: TVar Integer -> STM Integer
 nextCount counter = do
@@ -37,10 +38,9 @@ nextCount counter = do
 
 setUpCompileServer :: IO ErlangCompiler
 setUpCompileServer = do
-    (Just stdinH, Just stdoutH, _err, _processHandle) <- createProcess processSpec
+    (Just stdinH, Just stdoutH, _err, _processHandle) <- Process.createProcess processSpec
     hSetBuffering stdinH LineBuffering
     hSetBuffering stdoutH LineBuffering
-    threadDelay 2
     createCompiler stdinH stdoutH
 
 createCompiler :: Handle -> Handle -> IO ErlangCompiler
@@ -58,7 +58,7 @@ requestLoop stdinH chan resultMap = do
         req@ CompileRequest{ident = k, wait = v} <- readTChan chan
         modifyTVar resultMap (Map.insert k v)
         return req
-    hPutStrLn stdinH (show req)
+    hPrint stdinH req
     requestLoop stdinH chan resultMap
 
 listenerLoop :: Handle -> TVar (Map.Map Integer (TMVar ())) -> IO ()
@@ -88,14 +88,14 @@ createRequestCompile chan counter file include includeLib outputDir =
             return waitVar
         atomically $ takeTMVar waitVar
 
-processSpec :: CreateProcess
-processSpec = CreateProcess {
-    cmdspec         = RawCommand "compile-server.escript" []
+processSpec :: Process.CreateProcess
+processSpec = Process.CreateProcess {
+    cmdspec         = Process.RawCommand "compile-server.escript" []
   , cwd             = Nothing
   , env             = Nothing
-  , std_in          = CreatePipe
-  , std_out         = CreatePipe
-  , std_err         = Inherit
+  , std_in          = Process.CreatePipe
+  , std_out         = Process.CreatePipe
+  , std_err         = Process.Inherit
   , close_fds       = False
   , create_group    = False
   , delegate_ctlc   = False }
@@ -108,27 +108,27 @@ compileErlang file include includeLib outputDir =
 runShake :: ErlangCompiler -> IO ()
 runShake erlangCompiler = shakeArgs shakeOptions $ do
 
-    phony "clean" $ do
+    phony "clean" $
         removeFilesAfter "ebin" ["//*"]
 
     "ebin/*.beam" *> \out -> do
-        let src = "src" </> (dropDirectory1 $ out) -<.> "erl"
+        let src = "src" </> dropDirectory1 out -<.> "erl"
         need [src]
         erlangCompiler src "include" "deps" "ebin"
 
     "deps/*/ebin/*.beam" *> \out -> do
         let (dir, name) = splitFileName out
-            src = (takeDirectory $ takeDirectory dir) </> "src" </> name -<.> "erl"
+            src = takeDirectory (takeDirectory dir) </> "src" </> name -<.> "erl"
         need [src]
         let ebinDir = takeDirectory out
-            includeDir = (takeDirectory $ takeDirectory out) </> "include"
+            includeDir = takeDirectory (takeDirectory out) </> "include"
         erlangCompiler src includeDir "deps" ebinDir
 
     "compile" ~> do
         cs <- getDirectoryFiles "src" ["*.erl"]
         depCs <- getDirectoryFiles "deps" ["*/src/*.erl"]
         let os = ["ebin" </> c -<.> "beam" | c <- cs]
-            dos = ["deps" </> (takeDirectory1 d) </> "ebin" </> (dropDirectory1 $ dropDirectory1 d) -<.> "beam" | d <- depCs]
+            dos = ["deps" </> takeDirectory1 d </> "ebin" </> dropDirectory1 (dropDirectory1 d) -<.> "beam" | d <- depCs]
         need $ os ++ dos
 
 main :: IO ()
