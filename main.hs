@@ -74,7 +74,7 @@ listenerLoop stdoutH resultMap = do
 
 createRequestCompile :: TChan CompileRequest -> TVar Integer -> ErlangCompiler
 createRequestCompile chan counter file include includeLib outputDir =
-    liftIO $ do
+    traced "erlc" $ do
         waitVar <- atomically $ do
             waitVar <- newEmptyTMVar
             count <- nextCount counter
