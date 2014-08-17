@@ -18,7 +18,7 @@ usage() ->
 result_reporter() ->
     receive
         {Id, Result} ->
-            io:format("~p : ~p~n", [Id, Result])
+            io:format("~d~n", [Id])
     end,
     result_reporter().
 
@@ -29,7 +29,8 @@ compile_worker(ResultPid, Id, File, Include, IncludeLib, OutputDir) ->
 compile_loop(ResultPid) ->
     RawLine = io:get_line(standard_io, ""),
     StrippedLine = string:strip(RawLine, both, $\n),
-    [Id, File, Include, IncludeLib, OutputDir] = string:tokens(StrippedLine, " "),
+    [StringId, File, Include, IncludeLib, OutputDir] = string:tokens(StrippedLine, " "),
+    {Id, _Rest} = string:to_integer(StringId),
     spawn_link(fun () -> compile_worker(ResultPid, Id, File, Include,
                                         IncludeLib, OutputDir) end),
     compile_loop(ResultPid).
