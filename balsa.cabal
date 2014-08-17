@@ -1,0 +1,21 @@
+name:                balsa
+version:             0.1.0.0
+synopsis:            Balsa is an Erlang build tool
+license:             AllRightsReserved
+author:              Reid Draper
+maintainer:          reiddraper@gmail.com
+copyright:           Reid Draper
+category:            Development
+build-type:          Simple
+cabal-version:       >=1.10
+
+executable balsa
+  main-is:              balsa.hs
+  build-depends:        base >=4.7 && <4.8
+                      , shake == 0.13.*
+                      , stm == 2.4.*
+                      , containers == 0.5.*
+                      , process == 1.2.*
+
+  default-language:     Haskell2010
+  ghc-options:          -Wall -Werror -threaded -O2 -rtsopts -with-rtsopts=-I0 -with-rtsopts=-qg -with-rtsopts=-qb
