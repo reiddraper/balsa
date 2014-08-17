@@ -1,7 +1,10 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Main where
 
+import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM (STM)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
@@ -22,6 +25,10 @@ data CompileRequest = CompileRequest {
   , outputDir   :: FilePath
   , wait        :: TMVar () }
 
+instance Show CompileRequest where
+    show CompileRequest {..} =
+       intercalate " " [(show ident), file, include, includeLib, outputDir]
+
 nextCount :: TVar Integer -> STM Integer
 nextCount counter = do
     current <- readTVar counter
@@ -33,6 +40,7 @@ setUpCompileServer = do
     (Just stdinH, Just stdoutH, _err, _processHandle) <- createProcess processSpec
     hSetBuffering stdinH LineBuffering
     hSetBuffering stdoutH LineBuffering
+    threadDelay 2
     createCompiler stdinH stdoutH
 
 createCompiler :: Handle -> Handle -> IO ErlangCompiler
@@ -40,15 +48,37 @@ createCompiler stdinH stdoutH = do
     resultMap <- atomically $ newTVar Map.empty
     chan <- atomically newTChan
     counter <- atomically $ newTVar 0
-    forkIO undefined -- notifier thread
+    _ <- forkIO $ requestLoop stdinH chan resultMap
+    _ <- forkIO $ listenerLoop stdoutH resultMap
     return $ createRequestCompile chan counter
+
+requestLoop :: Handle -> TChan CompileRequest -> TVar (Map.Map Integer (TMVar ())) -> IO ()
+requestLoop stdinH chan resultMap = do
+    req <- atomically $ do
+        req@ CompileRequest{ident = k, wait = v} <- readTChan chan
+        modifyTVar resultMap (Map.insert k v)
+        return req
+    hPutStrLn stdinH (show req)
+    requestLoop stdinH chan resultMap
+
+listenerLoop :: Handle -> TVar (Map.Map Integer (TMVar ())) -> IO ()
+listenerLoop stdoutH resultMap = do
+    line <- hGetLine stdoutH
+    let compileId = read line :: Integer
+    atomically $ do
+        m <- readTVar resultMap
+        let (Just notifier) = Map.lookup compileId m
+        putTMVar notifier ()
+        -- TODO: clear the mapping
+    listenerLoop stdoutH resultMap
 
 createRequestCompile :: TChan CompileRequest -> TVar Integer -> ErlangCompiler
 createRequestCompile chan counter file include includeLib outputDir =
     liftIO $ do
         waitVar <- atomically $ do
             waitVar <- newEmptyTMVar
-            let req = CompileRequest { ident = 10
+            count <- nextCount counter
+            let req = CompileRequest { ident = count
                                      , file = file
                                      , include = include
                                      , includeLib = includeLib
@@ -65,7 +95,7 @@ processSpec = CreateProcess {
   , env             = Nothing
   , std_in          = CreatePipe
   , std_out         = CreatePipe
-  , std_err         = CreatePipe
+  , std_err         = Inherit
   , close_fds       = False
   , create_group    = False
   , delegate_ctlc   = False }
@@ -102,4 +132,4 @@ runShake erlangCompiler = shakeArgs shakeOptions $ do
         need $ os ++ dos
 
 main :: IO ()
-main = runShake compileErlang
+main = setUpCompileServer >>= runShake

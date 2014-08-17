@@ -17,8 +17,8 @@ usage() ->
 
 result_reporter() ->
     receive
-        {Id, Result} ->
-            io:format("~d~n", [Id])
+        {Id, _Result} ->
+            io:format(standard_io, "~p~n", [Id])
     end,
     result_reporter().
 
