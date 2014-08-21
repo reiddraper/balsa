@@ -8,7 +8,8 @@ import Control.Concurrent.STM (STM, atomically)
 import Control.Concurrent.STM.TChan (TChan, newTChan, readTChan, writeTChan)
 import Control.Concurrent.STM.TVar (TVar, newTVar, readTVar, writeTVar, modifyTVar)
 import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVar, takeTMVar, putTMVar)
-import System.IO (Handle, BufferMode(LineBuffering), hSetBuffering, hPrint, hGetLine)
+import Control.Monad (void)
+import System.IO (Handle, BufferMode(LineBuffering), hSetBuffering, hPrint, hPutStrLn, hGetLine)
 import qualified System.Process as Process
 import Development.Shake (Action, shakeArgs, shakeOptions, (*>), (~>), phony,
                           removeFilesAfter, want, need, getDirectoryFiles,
@@ -36,9 +37,8 @@ nextCount counter = do
     writeTVar counter $! current + 1
     return current
 
-setUpCompileServer :: IO ErlangCompiler
-setUpCompileServer = do
-    (Just stdinH, Just stdoutH, _err, _processHandle) <- Process.createProcess processSpec
+setUpCompileServer :: Handle -> Handle -> IO ErlangCompiler
+setUpCompileServer stdinH stdoutH = do
     hSetBuffering stdinH LineBuffering
     hSetBuffering stdoutH LineBuffering
     createCompiler stdinH stdoutH
@@ -133,4 +133,9 @@ runShake erlangCompiler = shakeArgs shakeOptions $ do
         need $ os ++ dos
 
 main :: IO ()
-main = setUpCompileServer >>= runShake
+main = do
+    (Just stdinH, Just stdoutH, _err, processHandle) <- Process.createProcess processSpec
+    compiler <- setUpCompileServer stdinH stdoutH
+    runShake compiler
+    hPutStrLn stdinH "quit"
+    void $ Process.waitForProcess processHandle
